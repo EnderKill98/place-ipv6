@@ -1,0 +1,20 @@
+[package]
+name = "place-ipv6"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+color-eyre = "0.6.2"
+log = "0.4.17"
+env_logger = "0.10.0"
+tokio = { version = "1.28.2", features = [ "full" ] }
+socket2 = "0.5.3"
+rawsock = "0.3.0"
+mac_address = "1.1.5"
+clap = { version = "4.3.0", features = [ "derive" ] }
+#pnet = "0.33.0"
+rand = "0.8.5"
+image = "0.24.6"
+fxhash = "0.2.1"
