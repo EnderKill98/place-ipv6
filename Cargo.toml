@@ -10,7 +10,6 @@ color-eyre = "0.6.2"
 log = "0.4.17"
 env_logger = "0.10.0"
 tokio = { version = "1.28.2", features = [ "full" ] }
-socket2 = "0.5.3"
 rawsock = "0.3.0"
 mac_address = "1.1.5"
 clap = { version = "4.3.0", features = [ "derive" ] }

@@ -46,7 +46,7 @@ impl EthernetInfo {
 }
 
 pub fn to_addr(pos: Pos, color: Color, size: Size) -> Ipv6Addr {
-    Ipv6Addr::new(
+    /*Ipv6Addr::new(
         0x2602,
         0xfa9b,
         0x202,
@@ -55,6 +55,16 @@ pub fn to_addr(pos: Pos, color: Color, size: Size) -> Ipv6Addr {
         color.red as u16,
         color.green as u16,
         color.blue as u16,
+    )*/
+    Ipv6Addr::new(
+        0x2a01,
+        0x4f8,
+        0xc012,
+        0xf8e6,
+        pos.x | ((size as u16) << 12),
+        pos.y,
+        color.red as u16,
+        ((color.green as u16) << 8) | color.blue as u16,
     )
 }
 
