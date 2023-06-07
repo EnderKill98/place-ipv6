@@ -2,6 +2,7 @@
 //! https://github.com/Xevion/v6-place
 
 use std::{
+    collections::VecDeque,
     io::{stdin, Read},
     net::Ipv6Addr,
     path::PathBuf,
@@ -26,8 +27,9 @@ extern crate log;
 enum Commands {
     /// Read a stream of rgb24 raw frames in 256x256 size (usually from ffmpeg with the flags `-pix_fmt rgb24 -f rawvideo pipe:1`)
     Rgb24Stdin {
-        #[arg(short = 'd', long, action)]
-        only_send_changed_pixels: bool,
+        /// Stop sending a pixel if it was the same for given amound of processed/sent frames (0 = send always regardless). HIGH NUMBERS CAN FILL YOUR RAM OVER TIME!
+        #[arg(short = 'r', long, default_value = "0")]
+        resend_same_pixel_max: usize,
     },
     Image {
         /// Path to image that should be displayed
@@ -95,8 +97,8 @@ fn main() -> Result<()> {
 
     match args.command {
         Commands::Rgb24Stdin {
-            only_send_changed_pixels,
-        } => run_rgb24_stdin(args.clone(), only_send_changed_pixels),
+            resend_same_pixel_max,
+        } => run_rgb24_stdin(args.clone(), resend_same_pixel_max),
         Commands::Image {
             ref path,
             alpha_threshold,
@@ -112,7 +114,7 @@ fn main() -> Result<()> {
     }
 }
 
-fn run_rgb24_stdin(args: Args, only_send_changed_pixels: bool) -> Result<()> {
+fn run_rgb24_stdin(args: Args, resend_same_pixel_max: usize) -> Result<()> {
     const WIDTH: u32 = 256;
     const HEIGHT: u32 = 256;
 
@@ -149,7 +151,12 @@ fn run_rgb24_stdin(args: Args, only_send_changed_pixels: bool) -> Result<()> {
         let mut last_sec = Instant::now();
         let mut last_sec_counter = 0;
 
-        let mut last_frame = [[None; HEIGHT as usize]; WIDTH as usize];
+        let mut last_frames: VecDeque<[u8; HEIGHT as usize * WIDTH as usize * 3]> =
+            VecDeque::with_capacity(resend_same_pixel_max);
+        let color_at = |buf: &[u8], x: u16, y: u16| {
+            let index = 3 * WIDTH as usize * y as usize + 3 * x as usize;
+            Color::new(buf[index], buf[index + 1], buf[index + 2])
+        };
 
         for buffer in rx {
             let mut x = 0;
@@ -166,14 +173,8 @@ fn run_rgb24_stdin(args: Args, only_send_changed_pixels: bool) -> Result<()> {
                     buffer[buffer_index + 1],
                     buffer[buffer_index + 2],
                 );
+
                 let mut send = true;
-                if only_send_changed_pixels {
-                    if let Some(ref last_color) = last_frame[x as usize][y as usize] {
-                        if &color == last_color {
-                            send = false;
-                        }
-                    }
-                }
 
                 if x * 2 < args.min_x
                     || x * 2 > args.max_x
@@ -183,19 +184,35 @@ fn run_rgb24_stdin(args: Args, only_send_changed_pixels: bool) -> Result<()> {
                     send = false;
                 }
 
+                if send && resend_same_pixel_max > 0 && last_frames.len() == resend_same_pixel_max {
+                    send = false;
+                    for older_frame in &last_frames {
+                        if color != color_at(older_frame, x, y) {
+                            send = true;
+                            break;
+                        }
+                    }
+                }
+
                 if send {
                     let dest_addr = to_addr(Pos::new(x * 2, y * 2), color, Size::Area2x2);
                     let data = make_icmpv6_packet(ethernet_info, src_ip, dest_addr);
                     data_array.push(data);
                     packet_counter += 1;
                 }
-                last_frame[x as usize][y as usize] = Some(color);
 
                 x += 1;
                 if x as u32 >= WIDTH {
                     x = 0;
                     y += 1;
                 }
+            }
+
+            if resend_same_pixel_max > 0 {
+                while last_frames.len() >= resend_same_pixel_max {
+                    last_frames.pop_front();
+                }
+                last_frames.push_back(buffer);
             }
 
             if args.noisy {
