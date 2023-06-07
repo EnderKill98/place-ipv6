@@ -252,7 +252,7 @@ fn run_rgb24_stdin(args: Args, resend_same_pixel_max: usize) -> Result<()> {
             counter += 1;
         }
 
-        println!("RX: Received: {} frames", counter);
+        info!("RX: Received: {} frames", counter);
     });
 
     let mut buffer = [0u8; BYTES_PER_FRAME];
@@ -271,7 +271,7 @@ fn run_rgb24_stdin(args: Args, resend_same_pixel_max: usize) -> Result<()> {
             }
         }
     }
-    println!(
+    info!(
         "TX: Succeeded: {} frames ; Dropped: {} frames",
         succeeded, dropped
     );
