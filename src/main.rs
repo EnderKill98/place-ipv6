@@ -308,7 +308,15 @@ fn run_image(
 
     let mut rng: rand::rngs::ThreadRng = rand::thread_rng();
 
-    let mut img = image::open(path).context("Opening image")?;
+    let mut img = if path == PathBuf::from("-") {
+        let mut stdin_buf = Vec::new();
+        std::io::stdin()
+            .read_to_end(&mut stdin_buf)
+            .context("Reading image from stdin")?;
+        image::load_from_memory(&stdin_buf).context("Opening image read from stdin")?
+    } else {
+        image::open(path).context("Opening image")?
+    };
 
     if !full_resolution && (img.width() != 256 || img.height() != 256) {
         info!("Resizing image to 256x256...");
