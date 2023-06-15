@@ -1,7 +1,11 @@
 to build:
 
-# cargo build release
+```
+cargo build release
+```
 
 see help with:
 
-# target/release/place-ipv6 -h
+```
+target/release/place-ipv6 -h
+```
