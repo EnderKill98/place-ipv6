@@ -323,7 +323,7 @@ fn run_image(
         img = img.resize_to_fill(256, 256, image::imageops::FilterType::Lanczos3);
     }
     if full_resolution && (img.width() != 512 || img.height() != 512) {
-        info!("Resizing image to 256x256...");
+        info!("Resizing image to 512x512...");
         img = img.resize_to_fill(512, 512, image::imageops::FilterType::Lanczos3);
     }
 
