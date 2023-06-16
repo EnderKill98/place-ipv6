@@ -1,7 +1,7 @@
 to build:
 
 ```
-cargo build release
+cargo build --release
 ```
 
 see help with:
