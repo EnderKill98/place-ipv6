@@ -45,22 +45,20 @@ impl EthernetInfo {
     }
 }
 
+const IPV6PREFIX:[u16;4] = [0x2a01,0x04f8,0xc012,0xf8e6];
+//const IPV6PREFIX:[u16;4] = [0x2607,0xfa18,0x9ffe,0x4];
+
 pub fn to_addr(pos: Pos, color: Color, size: Size) -> Ipv6Addr {
     /*Ipv6Addr::new(
-        0x2602,
-        0xfa9b,
-        0x202,
+        0x2602,0xfa9b,0x202,
         pos.x | ((size as u16) << 12),
         pos.y,
         color.red as u16,
         color.green as u16,
-        color.blue as u16,
+    Ipv6Addr::new(
     )*/
     Ipv6Addr::new(
-        0x2a01,
-        0x4f8,
-        0xc012,
-        0xf8e6,
+        IPV6PREFIX[0], IPV6PREFIX[1], IPV6PREFIX[2], IPV6PREFIX[3],
         pos.x | ((size as u16) << 12),
         pos.y,
         color.red as u16,
