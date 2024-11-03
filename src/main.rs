@@ -23,7 +23,7 @@ extern crate log;
 
 #[derive(Subcommand, Clone)]
 enum Commands {
-    /// Read a stream of rgb24 raw frames in 1920x1080 size (usually from ffmpeg with the flags `-pix_fmt rgb24 -f rawvideo pipe:1`)
+    /// Read a stream of raw rgb or rgba frames in 1920x1080 size (usually from ffmpeg with the flags `-pix_fmt rgb24/rgba -f rawvideo pipe:1`)
     RawPipeStdin {
         /// Stop sending a pixel if it was the same for given amound of processed/sent frames (0 = send always regardless). HIGH NUMBERS CAN FILL YOUR RAM OVER TIME!
         #[arg(short = 'r', long, default_value = "0")]
@@ -35,7 +35,7 @@ enum Commands {
         /// Height of input framebuffers
         height: u16,
 
-        /// Expect an additional alpha channel at the end (turning rgb into rgba)
+        /// Expect an additional alpha channel at the end (turning rgb(24) into rgba)
         #[arg(short = 'a', long, action)]
         has_alpha: bool,
     },
