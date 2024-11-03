@@ -2,13 +2,6 @@ use mac_address::MacAddress;
 use std::net::Ipv6Addr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum Size {
-    SinglePixel = 1,
-    Area2x2 = 2,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Pos {
     pub x: u16,
     pub y: u16,
@@ -25,11 +18,16 @@ pub struct Color {
     pub red: u8,
     pub green: u8,
     pub blue: u8,
+    pub alpha: u8,
 }
 
 impl Color {
     pub fn new(red: u8, green: u8, blue: u8) -> Self {
-        Self { red, green, blue }
+        Self { red, green, blue, alpha: 0xFF }
+    }
+
+    pub fn new_alpha(red: u8, green: u8, blue: u8, alpha: u8) -> Self {
+        Self { red, green, blue, alpha }
     }
 }
 
@@ -47,13 +45,13 @@ impl EthernetInfo {
 
 const IPV6PREFIX:[u16;4] = [0x2001, 0x610, 0x1908, 0xa000];
 
-pub fn to_addr(pos: Pos, color: Color, size: Size) -> Ipv6Addr {
+pub fn to_addr(pos: Pos, color: Color) -> Ipv6Addr {
     Ipv6Addr::new(
         IPV6PREFIX[0], IPV6PREFIX[1], IPV6PREFIX[2], IPV6PREFIX[3],
-        pos.x | ((size as u16) << 12),
+        pos.x,
         pos.y,
-        color.red as u16,
-        ((color.green as u16) << 8) | color.blue as u16,
+        ((color.blue as u16) << 8) | color.green as u16,
+        ((color.red as u16) << 8) | color.alpha as u16,
     )
 }
 

@@ -14,8 +14,6 @@ use std::{
 use clap::{Parser, Subcommand};
 use color_eyre::eyre::{eyre, Context};
 use color_eyre::Result;
-use fxhash::FxHashSet;
-use image::GenericImageView;
 use mac_address::MacAddress;
 use place_ipv6::*;
 use rand::seq::SliceRandom;
@@ -25,7 +23,7 @@ extern crate log;
 
 #[derive(Subcommand, Clone)]
 enum Commands {
-    /// Read a stream of rgb24 raw frames in 256x256 size (usually from ffmpeg with the flags `-pix_fmt rgb24 -f rawvideo pipe:1`)
+    /// Read a stream of rgb24 raw frames in 1920x1080 size (usually from ffmpeg with the flags `-pix_fmt rgb24 -f rawvideo pipe:1`)
     Rgb24Stdin {
         /// Stop sending a pixel if it was the same for given amound of processed/sent frames (0 = send always regardless). HIGH NUMBERS CAN FILL YOUR RAM OVER TIME!
         #[arg(short = 'r', long, default_value = "0")]
@@ -38,10 +36,6 @@ enum Commands {
         /// At what alpha value a pixel should be sent (if image has an alpha channel). If missing, alpha will be ignored.
         #[arg(short = 'a', long)]
         alpha_threshold: Option<u8>,
-
-        /// If set, image will be sent in 512x512 resolution instead of 256x256
-        #[arg(short = 'f', long, action)]
-        full_resolution: bool,
 
         /// If set, will continously loop, sending the image
         #[arg(short = 'c', long, action)]
@@ -71,18 +65,18 @@ struct Args {
     #[arg(short = 'n', long, action)]
     noisy: bool,
 
-    /// Skip all pixels smaller than given value (at 512x512 resolution)
+    /// Skip all pixels smaller than given value (at 1920x1080 resolution)
     #[arg(short = 'x', long, default_value = "0")]
     min_x: u16,
-    /// Skip all pixels bigger than given value (at 512x512 resolution)
-    #[arg(short = 'X', long, default_value = "512")]
+    /// Skip all pixels bigger than given value (at 1920x1080 resolution)
+    #[arg(short = 'X', long, default_value = "1920")]
     max_x: u16,
 
-    /// Skip all pixels smaller than given value (at 512x512 resolution)
+    /// Skip all pixels smaller than given value (at 1920x1080 resolution)
     #[arg(short = 'y', long, default_value = "0")]
     min_y: u16,
-    /// Skip all pixels bigger than given value (at 512x512 resolution)
-    #[arg(short = 'Y', long, default_value = "512")]
+    /// Skip all pixels bigger than given value (at 1920x1080 resolution)
+    #[arg(short = 'Y', long, default_value = "1080")]
     max_y: u16,
 }
 
@@ -102,21 +96,19 @@ fn main() -> Result<()> {
         Commands::Image {
             ref path,
             alpha_threshold,
-            full_resolution,
             continuous,
         } => run_image(
             args.clone(),
             path.clone(),
             alpha_threshold,
-            full_resolution,
             continuous,
         ),
     }
 }
 
 fn run_rgb24_stdin(args: Args, resend_same_pixel_max: usize) -> Result<()> {
-    const WIDTH: u32 = 256;
-    const HEIGHT: u32 = 256;
+    const WIDTH: u32 = 1920;
+    const HEIGHT: u32 = 1080;
 
     const BYTES_PER_FRAME: usize = (WIDTH * HEIGHT * 3) as usize;
 
@@ -195,7 +187,7 @@ fn run_rgb24_stdin(args: Args, resend_same_pixel_max: usize) -> Result<()> {
                 }
 
                 if send {
-                    let dest_addr = to_addr(Pos::new(x * 2, y * 2), color, Size::Area2x2);
+                    let dest_addr = to_addr(Pos::new(x * 2, y * 2), color);
                     let data = make_icmpv6_packet(ethernet_info, src_ip, dest_addr);
                     data_array.push(data);
                     packet_counter += 1;
@@ -287,7 +279,6 @@ fn run_image(
     args: Args,
     path: PathBuf,
     alpha_treshold: Option<u8>,
-    full_resolution: bool,
     continous: bool,
 ) -> Result<()> {
     let iface_name = &args.iface_name;
@@ -318,71 +309,30 @@ fn run_image(
         image::open(path).context("Opening image")?
     };
 
-    if !full_resolution && (img.width() != 256 || img.height() != 256) {
-        info!("Resizing image to 256x256...");
-        img = img.resize_to_fill(256, 256, image::imageops::FilterType::Lanczos3);
-    }
-    if full_resolution && (img.width() != 512 || img.height() != 512) {
-        info!("Resizing image to 512x512...");
-        img = img.resize_to_fill(512, 512, image::imageops::FilterType::Lanczos3);
+    if img.width() != 1920 || img.height() != 1080 {
+        info!("Resizing image to 1920x1080...");
+        img = img.resize_to_fill(1920, 1080, image::imageops::FilterType::Lanczos3);
     }
 
     info!("Processing image...");
-    let pixel_size = if full_resolution {
-        Size::SinglePixel
-    } else {
-        Size::Area2x2
-    };
-    let pos_multiplier = if full_resolution { 1 } else { 2 };
     let mut data_array = Vec::with_capacity(img.width() as usize * img.height() as usize);
-    let mut skip_pixels = FxHashSet::default();
-    let mut optimized_pixels: usize = 0;
     for (x, y, pixel) in img.to_rgba8().enumerate_pixels() {
         if let Some(alpha_treshold) = alpha_treshold {
             if pixel.0[3] < alpha_treshold {
                 continue;
             }
         }
-        if skip_pixels.contains(&(x, y)) {
-            continue;
-        }
-        let x_adj = x as u16 * pos_multiplier;
-        let y_adj = y as u16 * pos_multiplier;
+        let x_adj = x as u16;
+        let y_adj = y as u16;
 
-        let mut pixel_size = pixel_size;
-        if full_resolution
-            && x < 512 - 1
-            && y < 512 - 1
-            && &img.get_pixel(x + 1, y) == pixel
-            && &img.get_pixel(x, y + 1) == pixel
-            && &img.get_pixel(x + 1, y + 1) == pixel
-            && !(x_adj < args.min_x
-                || x_adj > args.max_x
-                || y_adj < args.min_y
-                || y_adj > args.max_y)
-            && !(x_adj + 1 < args.min_x
-                || x_adj + 1 > args.max_x
-                || y_adj + 1 < args.min_y
-                || y_adj + 1 > args.max_y)
-        {
-            pixel_size = Size::Area2x2;
-            skip_pixels.insert((x + 1, y));
-            skip_pixels.insert((x, y + 1));
-            skip_pixels.insert((x + 1, y + 1));
-            optimized_pixels += 1;
-        }
         if x_adj < args.min_x || x_adj > args.max_x || y_adj < args.min_y || y_adj > args.max_y {
             continue;
         }
         let dest_ip = to_addr(
             Pos::new(x_adj, y_adj),
-            Color::new(pixel.0[0], pixel.0[1], pixel.0[2]),
-            pixel_size,
+            Color::new_alpha(pixel.0[0], pixel.0[1], pixel.0[2], pixel.0[3]),
         );
         data_array.push(make_icmpv6_packet(ethernet_info, args.src_ip, dest_ip));
-    }
-    if optimized_pixels > 0 {
-        info!("Optimized {optimized_pixels} pixels into 2x2 areas!");
     }
 
     let mut counter = 0;
