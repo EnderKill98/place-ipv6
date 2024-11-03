@@ -9,10 +9,10 @@ edition = "2021"
 color-eyre = "0.6.2"
 log = "0.4.17"
 env_logger = "0.10.0"
-tokio = { version = "1.28.2", features = [ "full" ] }
+tokio = { version = "1.41.0", features = ["full"] }
 rawsock = "0.3.0"
 mac_address = "1.1.5"
-clap = { version = "4.3.0", features = [ "derive" ] }
+clap = { version = "4.3.0", features = ["derive"] }
 #pnet = "0.33.0"
 rand = "0.8.5"
 image = "0.24.6"
