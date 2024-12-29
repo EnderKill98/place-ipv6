@@ -1,4 +1,6 @@
 /target
+/.idea
 *.xcf
 *.png
 *.jpg
+

@@ -10,7 +10,8 @@ use std::{
     thread,
     time::Instant,
 };
-
+use std::io::{BufWriter, Write};
+use std::net::{SocketAddr, TcpStream};
 use clap::{Parser, Subcommand};
 use color_eyre::eyre::{bail, eyre, Context};
 use color_eyre::Result;
@@ -58,19 +59,12 @@ struct Args {
     #[command(subcommand)]
     command: Commands,
 
-    /// What interface to send the packets on.
-    #[arg(short = 'i', long)]
-    iface_name: String,
-    /// The IPv6 assigned to the specified interface.
-    #[arg(short = 's', long)]
-    src_ip: Ipv6Addr,
-    /// The Mac of the next hop where the packet needs to go to/through.
-    /// Use e.g. `ip route get 2620:119:35::35` and `ip -6 neigh` to find it.
-    #[arg(short = 'd', long)]
-    dest_mac: MacAddress,
-    /// If set, limit transmission speed to the given packets/sec.
+    /// Destination address and port
+    #[arg(short = 'd', long, default_value = "table.apokalypse.email:1337")]
+    destination_addr: String,
+    /// If set, limit transmission speed to the given pixels/sec.
     #[arg(short = 'r', long)]
-    packets_per_sec: Option<u32>,
+    pixels_per_sec: Option<u32>,
     /// Send pings in random order. Updates will appear like noise.
     #[arg(short = 'n', long, action)]
     noisy: bool,
@@ -130,7 +124,7 @@ fn run_rawpipe_stdin(args: Args, resend_same_pixel_max: usize, width: u16, heigh
     let bytes_per_pixel = if has_alpha { 4 } else { 3 };
     let bytes_per_frame: usize = ((width as u32) * (height as u32) * bytes_per_pixel) as usize;
 
-    if args.offset_x + width > 1920 {
+    if args.offset_x + width > 3840 {
         bail!("Can't send framebuffer! X Offset + Width could cause the framebuffer to get out-of-bounds!");
     }
 
@@ -147,25 +141,10 @@ fn run_rawpipe_stdin(args: Args, resend_same_pixel_max: usize, width: u16, heigh
 
         // Ready
         let mut counter: u64 = 0;
-        let iface_name = &args.iface_name;
-        let lib = rawsock::open_best_library().unwrap();
-        let iface = lib.open_interface(iface_name).unwrap();
-        iface.break_loop();
-
-        let src_mac = mac_address::mac_address_by_name(iface_name)
-            .unwrap()
-            .ok_or(eyre!("No mac :("))
-            .unwrap();
-        let dest_mac = args.dest_mac;
-        info!("RX: Src Mac: {}", src_mac);
-        let ethernet_info = match iface.data_link() {
-            rawsock::DataLink::Ethernet => Some(EthernetInfo::new(src_mac, dest_mac)),
-            _ => None,
-        };
+        let mut conn = BufWriter::with_capacity(10000000, TcpStream::connect(args.destination_addr).unwrap());
 
         let mut packet_counter;
         info!("RX: Ready...");
-        let src_ip = args.src_ip;
         let mut last_sec = Instant::now();
         let mut last_sec_counter = 0;
 
@@ -214,8 +193,8 @@ fn run_rawpipe_stdin(args: Args, resend_same_pixel_max: usize, width: u16, heigh
                 }
 
                 if send {
-                    let dest_addr = to_addr(Pos::new(args.offset_x + x, args.offset_y + y), color);
-                    let data = make_icmpv6_packet(ethernet_info, src_ip, dest_addr);
+                    let line = format!("PX {} {} {:02x}{:02x}{:02x}\n", args.offset_x + x, args.offset_y + y, color.red, color.green, color.blue);
+                    let data = Vec::from(line.as_bytes());
                     data_array.push(data);
                     packet_counter += 1;
                 }
@@ -241,7 +220,7 @@ fn run_rawpipe_stdin(args: Args, resend_same_pixel_max: usize, width: u16, heigh
 
             info!("RX: Sending frame as {} pings...", data_array.len());
             for data in data_array {
-                if let Some(ref packets_per_sec) = args.packets_per_sec {
+                if let Some(ref packets_per_sec) = args.pixels_per_sec {
                     loop {
                         let expected_packetcount = (*packets_per_sec as f64
                             * (started_at.elapsed().as_millis() as f64 / 1000f64))
@@ -253,11 +232,11 @@ fn run_rawpipe_stdin(args: Args, resend_same_pixel_max: usize, width: u16, heigh
                         }
                     }
                 }
-                iface.send(&data).unwrap();
+                conn.write_all(&data).unwrap();
                 packet_counter += 1;
             }
-            //iface.send(&all_data).unwrap();
-            iface.flush();
+            conn.flush().unwrap();
+
             info!("RX: Sent frame as pings!");
             let elapsed_ms = last_sec.elapsed().as_millis();
             if elapsed_ms >= 1000 {
@@ -309,23 +288,8 @@ fn run_image(
     alpha_treshold: Option<u8>,
     continous: bool,
 ) -> Result<()> {
-    let iface_name = &args.iface_name;
-    let lib = rawsock::open_best_library().unwrap();
-    let iface = lib.open_interface(iface_name).unwrap();
-    iface.break_loop();
-
-    let src_mac = mac_address::mac_address_by_name(iface_name)
-        .unwrap()
-        .ok_or(eyre!("No mac :("))
-        .unwrap();
-    let dest_mac = args.dest_mac;
-    info!("Src Mac: {}", src_mac);
-    let ethernet_info = match iface.data_link() {
-        rawsock::DataLink::Ethernet => Some(EthernetInfo::new(src_mac, dest_mac)),
-        _ => None,
-    };
-
     let mut rng: rand::rngs::ThreadRng = rand::thread_rng();
+    let mut conn = BufWriter::with_capacity(10000000, TcpStream::connect(args.destination_addr)?);
 
     let img = if path == PathBuf::from("-") {
         let mut stdin_buf = Vec::new();
@@ -362,11 +326,10 @@ fn run_image(
             continue; // Outside area. Skip
         }
 
-        let dest_ip = to_addr(
-            Pos::new(x_adj, y_adj),
-            Color::new_alpha(pixel.0[0], pixel.0[1], pixel.0[2], pixel.0[3]),
-        );
-        data_array.push(make_icmpv6_packet(ethernet_info, args.src_ip, dest_ip));
+        let line = format!("PX {} {} {:02x}{:02x}{:02x}\n", x_adj, y_adj, pixel.0[0], pixel.0[1], pixel.0[2]);
+        //println!("{line}");
+        let data = Vec::from(line.as_bytes());
+        data_array.push(data);
     }
 
     if worst_x_clip > 0 || worst_y_clip > 0 {
@@ -387,7 +350,7 @@ fn run_image(
         let mut packet_counter = 0;
         let started_at = Instant::now();
         for data in data_array.iter() {
-            if let Some(ref packets_per_sec) = args.packets_per_sec {
+            if let Some(ref packets_per_sec) = args.pixels_per_sec {
                 loop {
                     let expected_packetcount = (*packets_per_sec as f64
                         * (started_at.elapsed().as_millis() as f64 / 1000f64))
@@ -399,10 +362,10 @@ fn run_image(
                     }
                 }
             }
-            iface.send(data).unwrap();
+            conn.write_all(data)?;
             packet_counter += 1;
         }
-        iface.flush();
+        conn.flush()?;
         info!("Sent image as pings!");
         if !continous {
             break;
