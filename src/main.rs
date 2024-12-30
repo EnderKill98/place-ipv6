@@ -99,6 +99,10 @@ struct Args {
     /// Attempt chunking with offset. Might invalidate --no-offset-command and use the command anyway
     #[arg(short = 'c', long)]
     attempt_chunking: bool,
+
+    /// Grayscale everything
+    #[arg(short, long)]
+    grayscale: bool,
 }
 
 fn main() -> Result<()> {
@@ -203,12 +207,15 @@ fn run_rawpipe_stdin(mut args: Args, resend_same_pixel_max: usize, width: u16, h
 
             info!("RX: Processing frame...");
             for buffer_index in (0..buffer.len()).step_by(bytes_per_pixel as usize) {
-                let color = Color::new_alpha(
+                let mut color = Color::new_alpha(
                     buffer[buffer_index],
                     buffer[buffer_index + 1],
                     buffer[buffer_index + 2],
                     if bytes_per_pixel == 3 { 0xFF } else { buffer[buffer_index + 3] },
                 );
+                if args.grayscale {
+                    color = color.grayscale();
+                }
 
                 let mut send = true;
 
@@ -422,7 +429,11 @@ fn run_image(
             continue; // Outside area. Skip
         }
 
-        let line = Color::new(pixel.0[0], pixel.0[1], pixel.0[2]).pixel_command_at(x_adj, y_adj);
+        let mut color = Color::new(pixel.0[0], pixel.0[1], pixel.0[2]);
+        if args.grayscale {
+            color = color.grayscale();
+        }
+        let line = color.pixel_command_at(x_adj, y_adj);
         //println!("{line}");
         let data = Vec::from(line.as_bytes());
         data_array.push(data);

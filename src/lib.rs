@@ -32,6 +32,11 @@ impl Color {
     pub fn pixel_command_at(&self, x: u16, y: u16) -> String {
         format!("PX {x} {y} {self}\n")
     }
+
+    pub fn grayscale(&self) -> Color {
+        let w = (self.red + self.green + self.blue) / 3;
+        Color::new_alpha(w, w, w, self.alpha)
+    }
 }
 
 impl Display for Color {
