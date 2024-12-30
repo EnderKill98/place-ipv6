@@ -10,12 +10,14 @@ use std::{
     time::Instant,
 };
 use std::io::{BufWriter, Write};
-use std::net::TcpStream;
+use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
+use std::os::fd::{AsRawFd, OwnedFd};
 use clap::{Parser, Subcommand};
 use color_eyre::eyre::{bail, Context};
 use color_eyre::Result;
 use place_ipv6::*;
 use rand::seq::SliceRandom;
+use std::os::fd::FromRawFd;
 
 #[macro_use]
 extern crate log;
@@ -41,6 +43,10 @@ enum Commands {
         /// Connection count (at least 1)
         #[arg(short = 'c', long, default_value = "1")]
         connections: u16,
+
+        /// Source Addresses to bind over (round robin)
+        #[arg(short = 's', long)]
+        source_ips: Vec<String>,
     },
     Image {
         /// Path to image that should be displayed (you can use "-" for stdin)
@@ -121,7 +127,8 @@ fn main() -> Result<()> {
             height,
             has_alpha,
             connections,
-        } => run_rawpipe_stdin(args.clone(), resend_same_pixel_max, width, height, has_alpha, connections),
+            ref source_ips,
+        } => run_rawpipe_stdin(args.clone(), resend_same_pixel_max, width, height, has_alpha, connections, source_ips.clone()),
         Commands::Image {
             ref path,
             alpha_threshold,
@@ -135,7 +142,8 @@ fn main() -> Result<()> {
     }
 }
 
-fn run_rawpipe_stdin(mut args: Args, resend_same_pixel_max: usize, width: u16, height: u16, has_alpha: bool, connections_num: u16) -> Result<()> {
+fn run_rawpipe_stdin(mut args: Args, resend_same_pixel_max: usize, width: u16, height: u16,
+                     has_alpha: bool, connections_num: u16, source_ips: Vec<String>) -> Result<()> {
     let bytes_per_pixel = if has_alpha { 4 } else { 3 };
     let bytes_per_frame: usize = ((width as u32) * (height as u32) * bytes_per_pixel) as usize;
 
@@ -157,8 +165,22 @@ fn run_rawpipe_stdin(mut args: Args, resend_same_pixel_max: usize, width: u16, h
         // Ready
         let mut counter: u64 = 0;
         let mut conns = vec![];
-        for _ in 0..connections_num.max(1) {
-            conns.push(BufWriter::with_capacity(10000000, TcpStream::connect(&args.destination_addr).unwrap()));
+        for i in 0..(connections_num as usize).max(1) {
+            if ! source_ips.is_empty() {
+                let addr: SocketAddr = args.destination_addr.as_str().to_socket_addrs().unwrap().next().unwrap();
+
+                let socket = socket2::Socket::new(socket2::Domain::for_address(addr), socket2::Type::STREAM, None).unwrap();
+            socket.set_reuse_address(true).unwrap();
+                let bind_ip: IpAddr = source_ips[i % source_ips.len()].as_str().parse().unwrap();
+                let bind_addr = SocketAddr::new(bind_ip, 0);
+                socket.bind(&bind_addr.into()).unwrap();
+
+                socket.connect(&addr.into()).unwrap();
+
+                conns.push(BufWriter::with_capacity(10000000, TcpStream::from(unsafe { OwnedFd::from_raw_fd(socket.as_raw_fd()) })));
+            }else {
+                conns.push(BufWriter::with_capacity(10000000, TcpStream::connect(&args.destination_addr).unwrap()));
+            }
         }
 
 
