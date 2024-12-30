@@ -91,6 +91,10 @@ struct Args {
     /// Use if the target software version doesn't support the "OFFSET X Y" command
     #[arg(short = 'O', long)]
     no_offset_command: bool,
+
+    /// Attempt chunking with offset. Might invalidate --no-offset-command and use the command anyway
+    #[arg(short = 'c', long)]
+    attempt_chunking: bool,
 }
 
 fn main() -> Result<()> {
@@ -145,16 +149,15 @@ fn run_rawpipe_stdin(mut args: Args, resend_same_pixel_max: usize, width: u16, h
         let mut counter: u64 = 0;
         let mut conn = BufWriter::with_capacity(10000000, TcpStream::connect(args.destination_addr).unwrap());
 
-        if ! args.no_offset_command {
+        if ! args.no_offset_command && ! args.attempt_chunking {
             // Apply offset and remove it for later stuff
             conn.write_all(format!("OFFSET {} {}\n", args.offset_x, args.offset_y).as_bytes()).unwrap();
             conn.flush().unwrap();
+            args.offset_x = 0;
+            args.offset_y = 0;
         }
 
-        args.offset_x = 0;
-        args.offset_y = 0;
-
-        let mut packet_counter;
+        let mut pixel_counter;
         info!("RX: Ready...");
         let mut last_sec = Instant::now();
         let mut last_sec_counter = 0;
@@ -170,13 +173,18 @@ fn run_rawpipe_stdin(mut args: Args, resend_same_pixel_max: usize, width: u16, h
             }
         };
 
+        let mut batches = Vec::new();
+        let base_offset = Pos::new(args.offset_x, args.offset_y);
+        let mut current_batch;
+
         for buffer in rx {
             let mut x = 0;
             let mut y = 0;
             let started_at = Instant::now();
-            packet_counter = 0;
+            pixel_counter = 0;
 
-            let mut data_array = Vec::new();
+            batches.clear();
+            current_batch = PixelBatch::new(base_offset, 10);
 
             info!("RX: Processing frame...");
             for buffer_index in (0..buffer.len()).step_by(bytes_per_pixel as usize) {
@@ -204,18 +212,34 @@ fn run_rawpipe_stdin(mut args: Args, resend_same_pixel_max: usize, width: u16, h
                 }
 
                 if send {
-                    let line = format!("PX {} {} {}\n", args.offset_x + x, args.offset_y + y, to_hex(color.red, color.green, color.blue));
-                    let data = Vec::from(line.as_bytes());
-                    data_array.push(data);
-                    packet_counter += 1;
+                    current_batch.add(Pos::new(args.offset_x + x, args.offset_y + y), color);
+                    pixel_counter += 1;
                 }
 
+                let mut submit_batch = false;
                 x += 1;
-                if x as u16 >= width {
+                if x >= width {
                     x = 0;
                     y += 1;
+
+                    submit_batch = true;
+                }
+                if ! args.attempt_chunking {
+                    submit_batch = true;
+                }else if args.attempt_chunking && current_batch.len() >= 10 {
+                    submit_batch = true;
+                }
+
+                if submit_batch && current_batch.len() > 0 {
+                    current_batch.optimize();
+                    //eprintln!("{}", current_batch.commands());
+                    batches.push(current_batch);
+                    current_batch = PixelBatch::new(base_offset, 10);
                 }
             }
+
+            current_batch.optimize();
+            batches.push(current_batch);
 
             if resend_same_pixel_max > 0 {
                 while last_frames.len() >= resend_same_pixel_max {
@@ -225,26 +249,27 @@ fn run_rawpipe_stdin(mut args: Args, resend_same_pixel_max: usize, width: u16, h
             }
 
             if args.noisy {
-                info!("RX: Shuffling packets...");
-                data_array.shuffle(&mut rng);
+                info!("RX: Shuffling pixels/batches...");
+                batches.shuffle(&mut rng);
             }
 
-            info!("RX: Sending frame as {} pings...", data_array.len());
-            for data in data_array {
-                if let Some(ref packets_per_sec) = args.pixels_per_sec {
+            info!("RX: Sending frame as {} batches and {pixel_counter} pixels...", batches.len());
+            pixel_counter = 0;
+            for batch in batches.iter() {
+                if let Some(ref pixels_per_sec) = args.pixels_per_sec {
                     loop {
-                        let expected_packetcount = (*packets_per_sec as f64
+                        let expected_pixelcount = (*pixels_per_sec as f64
                             * (started_at.elapsed().as_millis() as f64 / 1000f64))
                             as u64;
-                        if packet_counter > expected_packetcount {
+                        if pixel_counter > expected_pixelcount {
                             std::thread::yield_now();
                         } else {
                             break;
                         }
                     }
                 }
-                conn.write_all(&data).unwrap();
-                packet_counter += 1;
+                conn.write_all(batch.commands().as_bytes()).unwrap();
+                pixel_counter += batch.len() as u64;
             }
             conn.flush().unwrap();
 
@@ -345,7 +370,7 @@ fn run_image(
             continue; // Outside area. Skip
         }
 
-        let line = format!("PX {} {} {}\n", x_adj, y_adj, to_hex(pixel.0[0], pixel.0[1], pixel.0[2]));
+        let line = Color::new(pixel.0[0], pixel.0[1], pixel.0[2]).pixel_command_at(x_adj, y_adj);
         //println!("{line}");
         let data = Vec::from(line.as_bytes());
         data_array.push(data);
