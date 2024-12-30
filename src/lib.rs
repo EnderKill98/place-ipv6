@@ -1,6 +1,3 @@
-use mac_address::MacAddress;
-use std::net::Ipv6Addr;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Pos {
     pub x: u16,
