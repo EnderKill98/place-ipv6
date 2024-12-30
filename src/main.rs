@@ -87,6 +87,10 @@ struct Args {
     /// Skip all pixels bigger than given value (at input resolution)
     #[arg(long, default_value = "9999")]
     max_y: u16,
+
+    /// Use if the target software version doesn't support the "OFFSET X Y" command
+    #[arg(short = 'O', long)]
+    no_offset_command: bool,
 }
 
 fn main() -> Result<()> {
@@ -141,9 +145,11 @@ fn run_rawpipe_stdin(mut args: Args, resend_same_pixel_max: usize, width: u16, h
         let mut counter: u64 = 0;
         let mut conn = BufWriter::with_capacity(10000000, TcpStream::connect(args.destination_addr).unwrap());
 
-        // Apply offset and remove it for later stuff
-        conn.write_all(format!("OFFSET {} {}", args.offset_x, args.offset_y).as_bytes()).unwrap();
-        conn.flush().unwrap();
+        if ! args.no_offset_command {
+            // Apply offset and remove it for later stuff
+            conn.write_all(format!("OFFSET {} {}\n", args.offset_x, args.offset_y).as_bytes()).unwrap();
+            conn.flush().unwrap();
+        }
 
         args.offset_x = 0;
         args.offset_y = 0;
@@ -296,11 +302,13 @@ fn run_image(
     let mut rng: rand::rngs::ThreadRng = rand::thread_rng();
     let mut conn = BufWriter::with_capacity(10000000, TcpStream::connect(args.destination_addr)?);
 
-    // Apply offset and remove it for later stuff
-    conn.write_all(format!("OFFSET {} {}", args.offset_x, args.offset_y).as_bytes())?;
-    conn.flush()?;
-    args.offset_x = 0;
-    args.offset_y = 0;
+    if ! args.no_offset_command {
+        // Apply offset and remove it for later stuff
+        conn.write_all(format!("OFFSET {} {}\n", args.offset_x, args.offset_y).as_bytes())?;
+        conn.flush()?;
+        args.offset_x = 0;
+        args.offset_y = 0;
+    }
 
     let img = if path == PathBuf::from("-") {
         let mut stdin_buf = Vec::new();
