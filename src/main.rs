@@ -204,7 +204,7 @@ fn run_rawpipe_stdin(mut args: Args, resend_same_pixel_max: usize, width: u16, h
                 }
 
                 if send {
-                    let line = format!("PX {} {} {:02x}{:02x}{:02x}\n", args.offset_x + x, args.offset_y + y, color.red, color.green, color.blue);
+                    let line = format!("PX {} {} {}\n", args.offset_x + x, args.offset_y + y, to_hex(color.red, color.green, color.blue));
                     let data = Vec::from(line.as_bytes());
                     data_array.push(data);
                     packet_counter += 1;
@@ -345,7 +345,7 @@ fn run_image(
             continue; // Outside area. Skip
         }
 
-        let line = format!("PX {} {} {:02x}{:02x}{:02x}\n", x_adj, y_adj, pixel.0[0], pixel.0[1], pixel.0[2]);
+        let line = format!("PX {} {} {}\n", x_adj, y_adj, to_hex(pixel.0[0], pixel.0[1], pixel.0[2]));
         //println!("{line}");
         let data = Vec::from(line.as_bytes());
         data_array.push(data);

@@ -27,3 +27,11 @@ impl Color {
         Self { red, green, blue, alpha }
     }
 }
+
+pub fn to_hex(r: u8, g: u8, b: u8) -> String {
+    if r == g && g == b {
+        format!("{:02x}", r)
+    }else {
+        format!("{:02x}{:02x}{:02x}", r, g, b)
+    }
+}
