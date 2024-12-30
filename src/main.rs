@@ -38,7 +38,7 @@ enum Commands {
         #[arg(short = 'a', long, action)]
         has_alpha: bool,
 
-        /// Connection count (1-10)
+        /// Connection count (at least 1)
         #[arg(short = 'c', long, default_value = "1")]
         connections: u16,
     },
@@ -153,7 +153,7 @@ fn run_rawpipe_stdin(mut args: Args, resend_same_pixel_max: usize, width: u16, h
         // Ready
         let mut counter: u64 = 0;
         let mut conns = vec![];
-        for _ in 0..connections_num.max(1).min(10) {
+        for _ in 0..connections_num.max(1) {
             conns.push(BufWriter::with_capacity(10000000, TcpStream::connect(&args.destination_addr).unwrap()));
         }
 
