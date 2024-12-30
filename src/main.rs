@@ -4,18 +4,16 @@
 use std::{
     collections::VecDeque,
     io::{stdin, Read},
-    net::Ipv6Addr,
     path::PathBuf,
     sync::mpsc::{sync_channel, Receiver, SyncSender},
     thread,
     time::Instant,
 };
 use std::io::{BufWriter, Write};
-use std::net::{SocketAddr, TcpStream};
+use std::net::TcpStream;
 use clap::{Parser, Subcommand};
-use color_eyre::eyre::{bail, eyre, Context};
+use color_eyre::eyre::{bail, Context};
 use color_eyre::Result;
-use mac_address::MacAddress;
 use place_ipv6::*;
 use rand::seq::SliceRandom;
 
