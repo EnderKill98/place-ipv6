@@ -120,7 +120,7 @@ fn main() -> Result<()> {
     }
 }
 
-fn run_rawpipe_stdin(args: Args, resend_same_pixel_max: usize, width: u16, height: u16, has_alpha: bool) -> Result<()> {
+fn run_rawpipe_stdin(mut args: Args, resend_same_pixel_max: usize, width: u16, height: u16, has_alpha: bool) -> Result<()> {
     let bytes_per_pixel = if has_alpha { 4 } else { 3 };
     let bytes_per_frame: usize = ((width as u32) * (height as u32) * bytes_per_pixel) as usize;
 
@@ -142,6 +142,13 @@ fn run_rawpipe_stdin(args: Args, resend_same_pixel_max: usize, width: u16, heigh
         // Ready
         let mut counter: u64 = 0;
         let mut conn = BufWriter::with_capacity(10000000, TcpStream::connect(args.destination_addr).unwrap());
+
+        // Apply offset and remove it for later stuff
+        conn.write_all(format!("OFFSET {} {}", args.offset_x, args.offset_y).as_bytes()).unwrap();
+        conn.flush().unwrap();
+
+        args.offset_x = 0;
+        args.offset_y = 0;
 
         let mut packet_counter;
         info!("RX: Ready...");
@@ -283,13 +290,19 @@ fn run_rawpipe_stdin(args: Args, resend_same_pixel_max: usize, width: u16, heigh
 }
 
 fn run_image(
-    args: Args,
+    mut args: Args,
     path: PathBuf,
     alpha_treshold: Option<u8>,
     continous: bool,
 ) -> Result<()> {
     let mut rng: rand::rngs::ThreadRng = rand::thread_rng();
     let mut conn = BufWriter::with_capacity(10000000, TcpStream::connect(args.destination_addr)?);
+
+    // Apply offset and remove it for later stuff
+    conn.write_all(format!("OFFSET {} {}", args.offset_x, args.offset_y).as_bytes())?;
+    conn.flush()?;
+    args.offset_x = 0;
+    args.offset_y = 0;
 
     let img = if path == PathBuf::from("-") {
         let mut stdin_buf = Vec::new();
