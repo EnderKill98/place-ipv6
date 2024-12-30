@@ -64,6 +64,7 @@ impl PixelBatch {
         self.pixels.push((abs_pos, color));
     }
 
+    /*
     pub fn optimize(&mut self) {
         if self.len() == 0 {
             return;
@@ -80,8 +81,13 @@ impl PixelBatch {
         }
 
         if min_offset != self.offset {
-            self.offset = min_offset;
+            self.set_offset(min_offset);
         }
+    }*/
+
+    pub fn set_offset(&mut self, offset: Pos) {
+        // TODO: Check all pixels whether this offset can be valid for them
+        self.offset = offset;
     }
 
     pub fn clear(&mut self) {

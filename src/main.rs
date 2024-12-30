@@ -173,7 +173,9 @@ fn run_rawpipe_stdin(mut args: Args, resend_same_pixel_max: usize, width: u16, h
             }
         };
 
-        let mut batches = Vec::new();
+        let mut batches: Vec<PixelBatch> = Vec::new();
+        let mut line_batches: Vec<PixelBatch> = Vec::new();
+        let mut line_batches_y;
         let base_offset = Pos::new(args.offset_x, args.offset_y);
         let mut current_batch;
 
@@ -184,6 +186,8 @@ fn run_rawpipe_stdin(mut args: Args, resend_same_pixel_max: usize, width: u16, h
             pixel_counter = 0;
 
             batches.clear();
+            line_batches.clear();
+            line_batches_y = 0;
             current_batch = PixelBatch::new(base_offset, 10);
 
             info!("RX: Processing frame...");
@@ -212,34 +216,68 @@ fn run_rawpipe_stdin(mut args: Args, resend_same_pixel_max: usize, width: u16, h
                 }
 
                 if send {
-                    current_batch.add(Pos::new(args.offset_x + x, args.offset_y + y), color);
-                    pixel_counter += 1;
+                    let pos = Pos::new(args.offset_x + x, args.offset_y + y);
+
+                    let mut added_to_existing_line_batches = false;
+                    for batch in line_batches.iter_mut() {
+                        if batch.offset().x == pos.x - (pos.x % 10) {
+                            batch.add(pos, color);
+                            added_to_existing_line_batches = true;
+                            pixel_counter += 1;
+                            break;
+                        }
+                    }
+
+                    if ! added_to_existing_line_batches {
+                        current_batch.add(pos, color);
+                        if current_batch.len() == 1 {
+                            current_batch.set_offset(pos)
+                        }
+                        pixel_counter += 1;
+                    }
                 }
 
-                let mut submit_batch = false;
+                let mut submit_to_line_batches = false;
+                let mut submit_line_batches_to_batches = false;
                 x += 1;
                 if x >= width {
                     x = 0;
                     y += 1;
 
-                    submit_batch = true;
+                    submit_to_line_batches = true;
                 }
                 if ! args.attempt_chunking {
-                    submit_batch = true;
-                }else if args.attempt_chunking && current_batch.len() >= 10 {
-                    submit_batch = true;
+                    submit_to_line_batches = true;
+                    submit_line_batches_to_batches = true;
+                }else {
+                    if current_batch.len() >= 10 {
+                        submit_to_line_batches = true;
+                    }
+                    if y - line_batches_y >= 10 {
+                        submit_line_batches_to_batches = true;
+                    }
                 }
 
-                if submit_batch && current_batch.len() > 0 {
-                    current_batch.optimize();
+                if submit_to_line_batches && current_batch.len() > 0 {
+                    //current_batch.optimize();
                     //eprintln!("{}", current_batch.commands());
-                    batches.push(current_batch);
+                    line_batches.push(current_batch);
                     current_batch = PixelBatch::new(base_offset, 10);
+                }
+
+                if submit_line_batches_to_batches {
+                    for batch in line_batches.drain(..) {
+                        batches.push(batch);
+                    }
+                    line_batches_y = y;
                 }
             }
 
-            current_batch.optimize();
-            batches.push(current_batch);
+            //current_batch.optimize();
+            line_batches.push(current_batch);
+            for batch in line_batches.drain(..) {
+                batches.push(batch);
+            }
 
             if resend_same_pixel_max > 0 {
                 while last_frames.len() >= resend_same_pixel_max {
@@ -268,6 +306,7 @@ fn run_rawpipe_stdin(mut args: Args, resend_same_pixel_max: usize, width: u16, h
                         }
                     }
                 }
+                //eprintln!("{}", batch.commands());
                 conn.write_all(batch.commands().as_bytes()).unwrap();
                 pixel_counter += batch.len() as u64;
             }
