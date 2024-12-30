@@ -37,6 +37,10 @@ enum Commands {
         /// Expect an additional alpha channel at the end (turning rgb(24) into rgba)
         #[arg(short = 'a', long, action)]
         has_alpha: bool,
+
+        /// Connection count (1-10)
+        #[arg(short = 'c', long, default_value = "1")]
+        connections: u16,
     },
     Image {
         /// Path to image that should be displayed (you can use "-" for stdin)
@@ -112,7 +116,8 @@ fn main() -> Result<()> {
             width,
             height,
             has_alpha,
-        } => run_rawpipe_stdin(args.clone(), resend_same_pixel_max, width, height, has_alpha),
+            connections,
+        } => run_rawpipe_stdin(args.clone(), resend_same_pixel_max, width, height, has_alpha, connections),
         Commands::Image {
             ref path,
             alpha_threshold,
@@ -126,7 +131,7 @@ fn main() -> Result<()> {
     }
 }
 
-fn run_rawpipe_stdin(mut args: Args, resend_same_pixel_max: usize, width: u16, height: u16, has_alpha: bool) -> Result<()> {
+fn run_rawpipe_stdin(mut args: Args, resend_same_pixel_max: usize, width: u16, height: u16, has_alpha: bool, connections_num: u16) -> Result<()> {
     let bytes_per_pixel = if has_alpha { 4 } else { 3 };
     let bytes_per_frame: usize = ((width as u32) * (height as u32) * bytes_per_pixel) as usize;
 
@@ -147,12 +152,18 @@ fn run_rawpipe_stdin(mut args: Args, resend_same_pixel_max: usize, width: u16, h
 
         // Ready
         let mut counter: u64 = 0;
-        let mut conn = BufWriter::with_capacity(10000000, TcpStream::connect(args.destination_addr).unwrap());
+        let mut conns = vec![];
+        for _ in 0..connections_num.max(1).min(10) {
+            conns.push(BufWriter::with_capacity(10000000, TcpStream::connect(&args.destination_addr).unwrap()));
+        }
+
 
         if ! args.no_offset_command && ! args.attempt_chunking {
             // Apply offset and remove it for later stuff
-            conn.write_all(format!("OFFSET {} {}\n", args.offset_x, args.offset_y).as_bytes()).unwrap();
-            conn.flush().unwrap();
+            for i in 0..conns.len() {
+                conns[i].write_all(format!("OFFSET {} {}\n", args.offset_x, args.offset_y).as_bytes()).unwrap();
+                conns[i].flush().unwrap();
+            }
             args.offset_x = 0;
             args.offset_y = 0;
         }
@@ -293,6 +304,7 @@ fn run_rawpipe_stdin(mut args: Args, resend_same_pixel_max: usize, width: u16, h
 
             info!("RX: Sending frame as {} batches and {pixel_counter} pixels...", batches.len());
             pixel_counter = 0;
+            let mut conn_index = 0;
             for batch in batches.iter() {
                 if let Some(ref pixels_per_sec) = args.pixels_per_sec {
                     loop {
@@ -307,10 +319,11 @@ fn run_rawpipe_stdin(mut args: Args, resend_same_pixel_max: usize, width: u16, h
                     }
                 }
                 //eprintln!("{}", batch.commands());
-                conn.write_all(batch.commands().as_bytes()).unwrap();
+                conns[conn_index].write_all(batch.commands().as_bytes()).unwrap();
+                conn_index = (conn_index + 1) % conns.len();
                 pixel_counter += batch.len() as u64;
             }
-            conn.flush().unwrap();
+            conns.iter_mut().for_each(|conn| conn.flush().unwrap());
 
             info!("RX: Sent frame as pings!");
             let elapsed_ms = last_sec.elapsed().as_millis();
